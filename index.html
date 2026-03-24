@@ -2,9 +2,35 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>CSF Pathway – Pulsatile Symmetrical</title>
+<title>Neurofluid Atlas</title>
 <style>
-body {display:flex; justify-content:center; align-items:center; height:100vh; margin:0; background:#f5f5f5;}
+body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  margin: 0;
+  background: #f5f5f5;
+  gap: 0.75rem;
+}
+.atlas-header {
+  text-align: center;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+.atlas-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  letter-spacing: -0.02em;
+}
+.atlas-author {
+  margin: 0.35rem 0 0 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #444;
+}
 canvas {border:1px solid #ccc; background:white; cursor:crosshair;}
 #tooltip {
   position:absolute; pointer-events:none; display:none;
@@ -17,8 +43,14 @@ canvas {border:1px solid #ccc; background:white; cursor:crosshair;}
 </style>
 </head>
 <body>
+<div class="atlas-header">
+  <h1>Neurofluid Atlas</h1>
+  <p class="atlas-author">Shalin Bhatt</p>
+</div>
 <canvas id="c" width="500" height="540"></canvas>
 <div id="tooltip"></div>
+
+
 
 
 <script>
@@ -26,6 +58,8 @@ const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const tooltip = document.getElementById('tooltip');
 const cx = 250, cy = 250;
+
+
 
 
 const pvsWidth = 28;
@@ -45,10 +79,14 @@ const blueVeinOuterR = blueArcR + vesselWidth / 2;
 const redArteryOuterR = redArcR + vesselWidth / 2;
 
 
+
+
 const redPvsOuter = redArcR + vesselWidth/2 + 3;
 const redPvsInner = redArcR - vesselWidth/2 - 3;
 const bluePvsOuter = blueArcR + vesselWidth/2 + 4;
 const bluePvsInner = blueArcR - vesselWidth/2 - 4;
+
+
 
 
 // Layer 3 — subarachnoid space (matches fillRing inner/outer radii)
@@ -73,6 +111,8 @@ const exitLymphRectX = cx - 35;
 const exitLymphRectW = 35;
 const exitBloodRectX = cx;
 const exitBloodRectW = 35;
+
+
 
 
 // Arachnoid granulation (right trilobe + stick) and cutoff exits (left 3 circles) — shared by detectRegion & drawScene
@@ -100,15 +140,21 @@ const arachnoidCutoffCircleXs = [
 ];
 
 
+
+
 const bpm = 72;
 const pulseFreq = bpm / 60;
 let time = 0;
 const dt = 1 / 60;
 
 
+
+
 // === HOVER STATE ===
 let hoveredRegion = null;
 let mouseX = -1, mouseY = -1;
+
+
 
 
 const regionInfo = {
@@ -139,12 +185,16 @@ astrocyteEndFeet: { title: "Astrocyte End Feet", desc: "Perivascular astrocyte p
 };
 
 
+
+
 // ============================================================
 // CHOROIDAL ARTERY FEEDING SYSTEM
 // A pulsating red rectangle artery on the midline, directly
 // above the choroid plexus, feeding red particles DOWNWARD
 // into the choroid plexus
 // ============================================================
+
+
 
 
 // Choroid plexus is drawn at: cx-9, cy-70, width=18, height=30
@@ -158,10 +208,14 @@ const choroidArteryWidth = 6;              // base width
 const choroidArteryPvsThick = 2.5;         // light blue PVS on left, top, right only (not bottom — choroid interface)
 
 
+
+
 // Red blood particles feeding into choroid plexus
 const choroidBloodParticles = [];
 const maxChoroidBlood = 35;
 let choroidSpawnAccum = 0;
+
+
 
 
 function spawnChoroidBloodParticle(pulse) {
@@ -182,6 +236,8 @@ function spawnChoroidBloodParticle(pulse) {
 }
 
 
+
+
 function updateChoroidBloodParticles(pulse) {
   // Spawn rate synchronized with cardiac pulse
   const spawnRate = 0.3 + pulse * 1.8;
@@ -193,13 +249,19 @@ function updateChoroidBloodParticles(pulse) {
   if (choroidBloodParticles.length >= maxChoroidBlood) choroidSpawnAccum = 0;
 
 
+
+
   const pulsePush = 0.5 + pulse * 1.5;
+
+
 
 
   for (let i = choroidBloodParticles.length - 1; i >= 0; i--) {
     const p = choroidBloodParticles[i];
     p.wobblePhase += p.wobbleSpeed;
     p.life++;
+
+
 
 
     if (p.phase === 0) {
@@ -210,6 +272,8 @@ function updateChoroidBloodParticles(pulse) {
       const halfW = (choroidArteryWidth + pulse * 2) / 2;
       if (p.x < cx - halfW) p.x = cx - halfW;
       if (p.x > cx + halfW) p.x = cx + halfW;
+
+
 
 
       // Reached choroid plexus top edge
@@ -227,9 +291,13 @@ function updateChoroidBloodParticles(pulse) {
       p.vy *= 0.97;
 
 
+
+
       // Keep roughly within choroid plexus horizontal bounds
       if (p.x < cx - 9) p.vx += 0.05;
       if (p.x > cx + 9) p.vx -= 0.05;
+
+
 
 
       // Once deep enough inside the choroid plexus, start fading (absorbed)
@@ -240,9 +308,13 @@ function updateChoroidBloodParticles(pulse) {
     }
 
 
+
+
     if (p.phase === 2) {
       p.opacity -= 0.025;
     }
+
+
 
 
     // Fade at end of life
@@ -251,11 +323,15 @@ function updateChoroidBloodParticles(pulse) {
     }
 
 
+
+
     if (p.opacity <= 0 || p.life >= p.maxLife) {
       choroidBloodParticles.splice(i, 1);
     }
   }
 }
+
+
 
 
 function drawChoroidArtery(pulse) {
@@ -267,11 +343,15 @@ function drawChoroidArtery(pulse) {
   const ay = choroidArteryTop;
 
 
+
+
   // Pulsating red color — brighter on systole
   const r = Math.floor(180 + pulse * 75);
   const g = Math.floor(25 - pulse * 15);
   const b = Math.floor(25 - pulse * 15);
   const arteryColor = `rgb(${r}, ${g}, ${b})`;
+
+
 
 
   // Perivascular space (SAS-like): thin light blue on left, top, right — omit bottom at choroid plexus
@@ -280,6 +360,8 @@ function drawChoroidArtery(pulse) {
   ctx.fillRect(ax - pt, ay - pt, w + 2 * pt, pt);
   ctx.fillRect(ax - pt, ay, pt, h);
   ctx.fillRect(ax + w, ay, pt, h);
+
+
 
 
   // Glow effect behind the artery (pulsating)
@@ -293,11 +375,15 @@ function drawChoroidArtery(pulse) {
   }
 
 
+
+
   // Main artery body
   ctx.fillStyle = arteryColor;
   ctx.beginPath();
   ctx.roundRect(ax, ay, w, h, 2);
   ctx.fill();
+
+
 
 
   // Darker border
@@ -308,10 +394,14 @@ function drawChoroidArtery(pulse) {
   ctx.stroke();
 
 
+
+
   // Inner highlight streak (lumen sheen)
   const sheenAlpha = 0.15 + pulse * 0.2;
   ctx.fillStyle = `rgba(255, 150, 150, ${sheenAlpha})`;
   ctx.fillRect(ax + w * 0.3, ay + 2, w * 0.25, h - 4);
+
+
 
 
   // Hover highlight
@@ -324,6 +414,8 @@ function drawChoroidArtery(pulse) {
 }
 
 
+
+
 function drawChoroidBloodParticles() {
   for (const p of choroidBloodParticles) {
     // Outer glow
@@ -331,6 +423,8 @@ function drawChoroidBloodParticles() {
     ctx.arc(p.x, p.y, p.radius + 2, 0, 2 * Math.PI);
     ctx.fillStyle = `rgba(255, 60, 60, ${p.opacity * 0.15})`;
     ctx.fill();
+
+
 
 
     // Main red blood cell body
@@ -343,11 +437,15 @@ function drawChoroidBloodParticles() {
     ctx.fill();
 
 
+
+
     // Specular highlight
     ctx.beginPath();
     ctx.arc(p.x - p.radius * 0.2, p.y - p.radius * 0.2, p.radius * 0.35, 0, 2 * Math.PI);
     ctx.fillStyle = `rgba(255, 180, 180, ${p.opacity * 0.4})`;
     ctx.fill();
+
+
 
 
     // Thin dark outline
@@ -360,7 +458,11 @@ function drawChoroidBloodParticles() {
 }
 
 
+
+
 // ============================================================
+
+
 
 
 function detectRegion(mx, my) {
@@ -371,11 +473,15 @@ function detectRegion(mx, my) {
   
 
 
+
+
   // CVO hit tests (small targets get priority)
   const dPurple = Math.sqrt((mx - (cx - 50))**2 + (my - cy)**2);
   if (dPurple <= 13) return 'secretoryCVO';
   const dYellow = Math.sqrt((mx - (cx + 50))**2 + (my - cy)**2);
   if (dYellow <= 13) return 'sensoryCVO';
+
+
 
 
   // Choroidal artery hit test (before general parenchyma)
@@ -386,7 +492,11 @@ function detectRegion(mx, my) {
   }
 
 
+
+
   if (hitAstrocyteEndFeet(mx, my)) return 'astrocyteEndFeet';
+
+
 
 
   // Bottom rectangles
@@ -399,6 +509,8 @@ function detectRegion(mx, my) {
   if (mx >= cx - 12 && mx <= cx + 12 && my >= cy - 73 && my <= cy - 37) return 'choroid';
 
 
+
+
   // EM field detection
   for (const p of particles) {
     if (p.inPVS) {
@@ -408,9 +520,13 @@ function detectRegion(mx, my) {
   }
 
 
+
+
   // Skull outline
   if (dist > 206 && dist < 218) return 'skull';
   if (dist > 218) return null;
+
+
 
 
   // Vessel lines
@@ -427,8 +543,12 @@ function detectRegion(mx, my) {
   }
 
 
+
+
   if (dist > redArcR - 6 && dist < redArcR + 6 && dy > 0) return 'arteryArc';
   if (dist > blueArcR - 6 && dist < blueArcR + 6 && dy < 0) return 'veinArc';
+
+
 
 
   const cutoffHitR = cutoffCircleR + arachnoidHitPad;
@@ -436,6 +556,8 @@ function detectRegion(mx, my) {
     const cd = Math.hypot(mx - x, my - loliY);
     if (cd <= cutoffHitR) return 'arachnoidCutoffExits';
   }
+
+
 
 
   if (mx >= loliBaseX && mx <= loliBaseX + loliStickW &&
@@ -449,6 +571,8 @@ function detectRegion(mx, my) {
   }
 
 
+
+
   if (dist > 2 && Math.abs(dist - sasLayerInnerR) <= meningeRingHitTol) {
     const px = cx + sasLayerInnerR * (dx / dist);
     const py = cy + sasLayerInnerR * (dy / dist);
@@ -456,6 +580,8 @@ function detectRegion(mx, my) {
         py >= apertureTopY && py <= apertureBottomY;
     if (!inAperture) return 'piaMater';
   }
+
+
 
 
   if (dist <= 50) return 'ventricle';
@@ -472,11 +598,15 @@ function detectRegion(mx, my) {
 }
 
 
+
+
 canvas.addEventListener('mousemove', function(e) {
   const rect = canvas.getBoundingClientRect();
   mouseX = e.clientX - rect.left;
   mouseY = e.clientY - rect.top;
   hoveredRegion = detectRegion(mouseX, mouseY);
+
+
 
 
   if (hoveredRegion && regionInfo[hoveredRegion]) {
@@ -491,10 +621,14 @@ canvas.addEventListener('mousemove', function(e) {
 });
 
 
+
+
 canvas.addEventListener('mouseleave', function() {
   hoveredRegion = null;
   tooltip.style.display = 'none';
 });
+
+
 
 
 // === CORE ANIMATION ===
@@ -506,14 +640,20 @@ function getPulse(t) {
 }
 
 
+
+
 function exitArteryBottomFromPulse(pulse) {
   return heartCenterY;
 }
 
 
+
+
 function getVeinBreathe(t) {
   return Math.sin(t * 0.25 * Math.PI * 2) * 0.5 + 0.5;
 }
+
+
 
 
 const paths = [
@@ -522,7 +662,11 @@ const paths = [
 ];
 
 
+
+
 function angleToRad(d) { return d * Math.PI / 180; }
+
+
 
 
 function vesselPoint(angleDeg, r, offset) {
@@ -534,6 +678,8 @@ function vesselPoint(angleDeg, r, offset) {
 }
 
 
+
+
 // === MACROVASCULAR BLOOD (subtle lumen drift; choroidal artery untouched) ===
 const macroArteryBlood = [];
 const macroVeinBlood = [];
@@ -541,10 +687,14 @@ const maxMacroArteryBlood = 36;
 const maxMacroVeinBlood = 36;
 
 
+
+
 function choroidArteryExclusion(px, py, pulse) {
   const halfW = (choroidArteryWidth + pulse * 2) / 2 + 5;
   return Math.abs(px - cx) <= halfW && py >= choroidArteryTop - 5 && py <= choroidArteryBottom + 8;
 }
+
+
 
 
 function spawnMacroArteryBlood(pulse) {
@@ -593,6 +743,8 @@ function spawnMacroArteryBlood(pulse) {
     });
   }
 }
+
+
 
 
 function spawnMacroVeinBlood(pulse) {
@@ -644,6 +796,8 @@ function spawnMacroVeinBlood(pulse) {
 }
 
 
+
+
 function updateMacroBlood(pulse) {
   const ae = pulse * 6;
   const stemHalf = (8 + ae) / 2;
@@ -653,8 +807,12 @@ function updateMacroBlood(pulse) {
   const veinStemBot = cy - blueArcR;
 
 
+
+
   if (macroArteryBlood.length < maxMacroArteryBlood && Math.random() < 0.38) spawnMacroArteryBlood(pulse);
   if (macroVeinBlood.length < maxMacroVeinBlood && Math.random() < 0.38) spawnMacroVeinBlood(pulse);
+
+
 
 
   for (let i = macroArteryBlood.length - 1; i >= 0; i--) {
@@ -696,6 +854,8 @@ function updateMacroBlood(pulse) {
   }
 
 
+
+
   for (let i = macroVeinBlood.length - 1; i >= 0; i--) {
     const p = macroVeinBlood[i];
     p.life++;
@@ -730,6 +890,8 @@ function updateMacroBlood(pulse) {
 }
 
 
+
+
 function drawMacroBlood() {
   for (const p of macroArteryBlood) {
     ctx.beginPath();
@@ -746,9 +908,13 @@ function drawMacroBlood() {
 }
 
 
+
+
 const particles = [];
 const maxParticles = 230;
 let spawnSide = 0;
+
+
 
 
 function spawnBurst(count) {
@@ -777,10 +943,14 @@ function spawnBurst(count) {
 }
 
 
+
+
 function updateParticles(pulse) {
   const pulseMult = 0.5 + pulse * 1.5;
   const breathe = getVeinBreathe(time);
   const breatheMult = 0.5 + breathe * 1.0;
+
+
 
 
   for (let i = particles.length - 1; i >= 0; i--) {
@@ -789,8 +959,12 @@ function updateParticles(pulse) {
     const path = paths[p.pathIdx];
 
 
+
+
     p.prevX = p.x;
     p.prevY = p.y;
+
+
 
 
     if (p.phase === 0) {
@@ -907,9 +1081,13 @@ function updateParticles(pulse) {
     }
 
 
+
+
     // === UPDATE EM FIELD STATE ===
     const wasInPVS = p.inPVS;
     p.inPVS = (p.phase === 3 || p.phase === 5);
+
+
 
 
     if (p.inPVS) {
@@ -934,12 +1112,16 @@ function updateParticles(pulse) {
 }
 
 
+
+
 function drawEMFields(pulse) {
   for (const p of particles) {
     if (p.emRadius < 1.0 || p.emIntensity < 0.01) continue;
     const intensity = p.emIntensity;
     const r = p.emRadius;
     const isArterial = (p.phase === 2 || p.phase === 3);
+
+
 
 
     const grad = ctx.createRadialGradient(p.x, p.y, p.radius * 0.5, p.x, p.y, r);
@@ -958,6 +1140,8 @@ function drawEMFields(pulse) {
     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
     ctx.fillStyle = grad;
     ctx.fill();
+
+
 
 
     const numRings = 3;
@@ -981,6 +1165,8 @@ function drawEMFields(pulse) {
         ctx.stroke();
       }
     }
+
+
 
 
     const numTicks = 5;
@@ -1018,10 +1204,14 @@ function drawEMFields(pulse) {
 }
 
 
+
+
 const sasParticles = [];
 const maxSasParticles = 60;
 const sasInnerR = 122;
 const sasOuterR = 168;
+
+
 
 
 function spawnSasParticle() {
@@ -1039,10 +1229,14 @@ function spawnSasParticle() {
 }
 
 
+
+
 for (let i = 0; i < maxSasParticles; i++) {
   spawnSasParticle();
   sasParticles[i].life = Math.floor(Math.random() * sasParticles[i].maxLife);
 }
+
+
 
 
 function updateSasParticles(pulse) {
@@ -1063,6 +1257,8 @@ function updateSasParticles(pulse) {
 }
 
 
+
+
 function drawSasParticles() {
   for (const p of sasParticles) {
     const x = cx + Math.cos(p.angle) * p.r;
@@ -1078,11 +1274,15 @@ function drawSasParticles() {
 }
 
 
+
+
 // === HEART → CEREBRAL ARTERY MOLECULES (faded red; arc pass before SAS, stem pass after exit-artery fill) ===
 const heartArteryMolecules = [];
 const maxHeartArteryMolecules = 38;
 const heartArteryAngleLeft = 135 * Math.PI / 180;
 const heartArteryAngleRight = 45 * Math.PI / 180;
+
+
 
 
 function spawnHeartArteryMolecule(pulse) {
@@ -1102,6 +1302,8 @@ function spawnHeartArteryMolecule(pulse) {
 }
 
 
+
+
 for (let i = 0; i < maxHeartArteryMolecules; i++) {
   spawnHeartArteryMolecule(0);
   heartArteryMolecules[i].life = Math.floor(Math.random() * 200);
@@ -1117,6 +1319,8 @@ for (let i = 0; i < maxHeartArteryMolecules; i++) {
     heartArteryMolecules[i].y = cy + Math.sin(a) * redArcR;
   }
 }
+
+
 
 
 function updateHeartArteryMolecules(pulse) {
@@ -1161,6 +1365,8 @@ function updateHeartArteryMolecules(pulse) {
 }
 
 
+
+
 function drawHeartArteryMolecules(arcOnly) {
   for (const p of heartArteryMolecules) {
     if (arcOnly ? p.phase !== 'arc' : p.phase !== 'stem') continue;
@@ -1177,6 +1383,8 @@ function drawHeartArteryMolecules(arcOnly) {
 }
 
 
+
+
 // === CEREBRAL VEIN MOLECULES (faded blue; speed/size modulated by breath; flow along arcs → apex, then up midline stem) ===
 const cerebralVeinMolecules = [];
 const maxCerebralVeinMolecules = 38;
@@ -1185,6 +1393,8 @@ const veinStemBottomY = cy - blueArcR;
 const cerebralVeinAngleApex = 3 * Math.PI / 2;
 const cerebralVeinAngle225 = 225 * Math.PI / 180;
 const cerebralVeinAngle315 = 315 * Math.PI / 180;
+
+
 
 
 function spawnCerebralVeinMolecule() {
@@ -1224,10 +1434,14 @@ function spawnCerebralVeinMolecule() {
 }
 
 
+
+
 for (let i = 0; i < maxCerebralVeinMolecules; i++) {
   spawnCerebralVeinMolecule();
   cerebralVeinMolecules[i].life = Math.floor(Math.random() * 200);
 }
+
+
 
 
 function updateCerebralVeinMolecules() {
@@ -1279,6 +1493,8 @@ function updateCerebralVeinMolecules() {
 }
 
 
+
+
 function drawCerebralVeinMolecules(arcOnly) {
   const vB = getVeinBreathe(time);
   const breathR = 0.9 + vB * 0.14;
@@ -1303,6 +1519,8 @@ const layer4InnerR = 172;
 const layer4OuterR = 208;
 
 
+
+
 function spawnLayer4Particle() {
     const isLymph = Math.random() < 0.5;
     // Top of the respective half-ring: start near top (around 3π/2 area)
@@ -1315,6 +1533,8 @@ function spawnLayer4Particle() {
     }
     const r = layer4InnerR + Math.random() * (layer4OuterR - layer4InnerR);
     const dir = isLymph ? -1 : 1;
+
+
 
 
     layer4Particles.push({
@@ -1332,10 +1552,14 @@ function spawnLayer4Particle() {
 }
 
 
+
+
 for (let i = 0; i < maxLayer4Particles; i++) {
     spawnLayer4Particle();
     layer4Particles[i].life = Math.floor(Math.random() * layer4Particles[i].maxLife);
 }
+
+
 
 
 function updateLayer4Particles() {
@@ -1357,6 +1581,8 @@ function updateLayer4Particles() {
         spawnLayer4Particle();
     }
 }
+
+
 
 
 function drawLayer4Particles() {
@@ -1383,11 +1609,15 @@ function drawLayer4Particles() {
 }
 
 
+
+
 // === EXIT RECTANGLE DRAIN (layer 4 outflow continuation) ===
 // Match layer 4 molecule look; modest fraction of per-side layer-4 count so bottom boxes stay readable.
 const exitDrainParticles = [];
 const exitDrainInflowBand = 24;
 const maxExitDrainPerSide = Math.ceil((maxLayer4Particles / 2) * 0.62);
+
+
 
 
 function spawnExitDrainParticle(isLymph) {
@@ -1407,12 +1637,16 @@ function spawnExitDrainParticle(isLymph) {
 }
 
 
+
+
 for (let i = 0; i < maxExitDrainPerSide; i++) {
   spawnExitDrainParticle(true);
   spawnExitDrainParticle(false);
   exitDrainParticles[exitDrainParticles.length - 2].life = Math.floor(Math.random() * 420);
   exitDrainParticles[exitDrainParticles.length - 1].life = Math.floor(Math.random() * 420);
 }
+
+
 
 
 function updateExitDrainParticles() {
@@ -1438,6 +1672,8 @@ function updateExitDrainParticles() {
 }
 
 
+
+
 function drawExitDrainParticlesSubset(inflowBandOnly) {
   for (const p of exitDrainParticles) {
     if (inflowBandOnly ? p.y >= exitRectTopY : p.y < exitRectTopY) continue;
@@ -1457,10 +1693,14 @@ function drawExitDrainParticlesSubset(inflowBandOnly) {
 }
 
 
+
+
 // ===== PURPLE MOLECULES =====
 const purpleMolecules = [];
 const maxPurpleMolecules = 50;
 let purpleSpawnTimer = 0;
+
+
 
 
 function spawnPurpleMolecule() {
@@ -1484,6 +1724,8 @@ function spawnPurpleMolecule() {
 }
 
 
+
+
 function updatePurpleMolecules() {
   purpleSpawnTimer++;
   if (purpleSpawnTimer >= 7 && purpleMolecules.length < maxPurpleMolecules) {
@@ -1501,6 +1743,8 @@ function updatePurpleMolecules() {
 }
 
 
+
+
 function drawPurpleMolecules() {
   for (const m of purpleMolecules) {
     ctx.beginPath(); ctx.arc(m.x, m.y, m.radius + 2.5, 0, 2 * Math.PI);
@@ -1513,14 +1757,20 @@ function drawPurpleMolecules() {
 }
 
 
+
+
 // ===== YELLOW RADAR =====
 const radarWaves = [];
 let radarSpawnTimer = 0;
 
 
+
+
 function spawnRadarWave() {
   radarWaves.push({ r: 4, maxR: 40, speed: 0.5, opacity: 0.7 });
 }
+
+
 
 
 function updateRadarWaves() {
@@ -1533,6 +1783,8 @@ function updateRadarWaves() {
     if (w.r >= w.maxR || w.opacity <= 0) radarWaves.splice(i, 1);
   }
 }
+
+
 
 
 function drawYellowRadar() {
@@ -1558,10 +1810,14 @@ function drawYellowRadar() {
 }
 
 
+
+
 // ===== CVO VESSEL LINES =====
 function drawCVOVessels() {
   const r = 80;
   const toRad = a => a * Math.PI / 180;
+
+
 
 
   const pArtX = cx + Math.cos(toRad(135)) * r;
@@ -1573,6 +1829,8 @@ function drawCVOVessels() {
   ctx.lineWidth = 2; ctx.stroke();
 
 
+
+
   const pVnX = cx + Math.cos(toRad(225)) * r;
   const pVnY = cy + Math.sin(toRad(225)) * r;
   ctx.beginPath();
@@ -1580,6 +1838,8 @@ function drawCVOVessels() {
   ctx.quadraticCurveTo(cx - 62, cy - 15, cx - 50, cy + 5);
   ctx.strokeStyle = 'rgba(40,40,210,0.85)';
   ctx.lineWidth = 2; ctx.stroke();
+
+
 
 
   const yArtX = cx + Math.cos(toRad(45)) * r;
@@ -1591,6 +1851,8 @@ function drawCVOVessels() {
   ctx.lineWidth = 2; ctx.stroke();
 
 
+
+
   const yVnX = cx + Math.cos(toRad(315)) * r;
   const yVnY = cy + Math.sin(toRad(315)) * r;
   ctx.beginPath();
@@ -1599,6 +1861,8 @@ function drawCVOVessels() {
   ctx.strokeStyle = 'rgba(40,40,210,0.85)';
   ctx.lineWidth = 2; ctx.stroke();
 }
+
+
 
 
 // === DRAWING ===
@@ -1614,6 +1878,8 @@ function fillRing(r0, r1, color, highlight) {
 }
 
 
+
+
 function fillHalfRing(r0, r1, sa, ea, color, highlight) {
   ctx.beginPath();
   ctx.arc(cx, cy, r1, sa, ea, false);
@@ -1626,6 +1892,8 @@ function fillHalfRing(r0, r1, sa, ea, color, highlight) {
 }
 
 
+
+
 function drawSasMeningealOutlines(hr) {
   const rInner = sasLayerInnerR;
   const rOuter = sasLayerOuterR;
@@ -1634,12 +1902,16 @@ function drawSasMeningealOutlines(hr) {
   ctx.lineCap = 'round';
 
 
+
+
   const piaInApertureGap = (a) => {
     const px = cx + rInner * Math.cos(a);
     const py = cy + rInner * Math.sin(a);
     return px >= cx - apertureHalfW && px <= cx + apertureHalfW &&
         py >= apertureTopY && py <= apertureBottomY;
   };
+
+
 
 
   const piaLw = hr === 'piaMater' ? 2.85 : 1.75;
@@ -1665,6 +1937,8 @@ function drawSasMeningealOutlines(hr) {
   }
 
 
+
+
   const araLw = hr === 'arachnoidMater' ? 3.4 : 2.25;
   const araStroke = hr === 'arachnoidMater' ? 'rgba(55, 62, 105, 0.98)' : 'rgba(35, 42, 72, 0.92)';
   ctx.beginPath();
@@ -1673,6 +1947,8 @@ function drawSasMeningealOutlines(hr) {
   ctx.lineWidth = araLw;
   ctx.stroke();
 }
+
+
 
 
 function drawVessel(angleDeg, innerR, outerR, pw, vw, vc) {
@@ -1684,6 +1960,8 @@ function drawVessel(angleDeg, innerR, outerR, pw, vw, vc) {
   ctx.fillRect(innerR, -vw / 2, outerR - innerR, vw);
   ctx.restore();
 }
+
+
 
 
 function drawVesselSplit(angleDeg, innerR, pvsOuterR, vesselOuterR, pw, vw, vc, pe) {
@@ -1698,6 +1976,8 @@ function drawVesselSplit(angleDeg, innerR, pvsOuterR, vesselOuterR, pw, vw, vc, 
 }
 
 
+
+
 function distPointToSegment(px, py, x1, y1, x2, y2) {
   const dx = x2 - x1, dy = y2 - y1;
   const len2 = dx * dx + dy * dy;
@@ -1706,6 +1986,8 @@ function distPointToSegment(px, py, x1, y1, x2, y2) {
   t = Math.max(0, Math.min(1, t));
   return Math.hypot(px - x1 - t * dx, py - y1 - t * dy);
 }
+
+
 
 
 function forEachAstrocyteEndFootSite(pvsArteryW, pvsVeinW, cb) {
@@ -1744,6 +2026,8 @@ function forEachAstrocyteEndFootSite(pvsArteryW, pvsVeinW, cb) {
 }
 
 
+
+
 function hitAstrocyteEndFeet(mx, my) {
   const ve = getVeinBreathe(time) * 9;
   const pvsVeinW = pvsWidth + ve * 0.5;
@@ -1760,6 +2044,8 @@ function hitAstrocyteEndFeet(mx, my) {
 }
 
 
+
+
 // Astrocyte end feet: dark purple ┬ with black outline, parenchyma side of each PVS strip
 function drawAstrocyteEndFeetAlongVessel(angleDeg, vesselInnerR, pvsFullWidth, highlight) {
   const a = angleToRad(angleDeg);
@@ -1770,10 +2056,14 @@ function drawAstrocyteEndFeetAlongVessel(angleDeg, vesselInnerR, pvsFullWidth, h
   if (maxR <= r0) return;
 
 
+
+
   const radialUnitX = Math.cos(a);
   const radialUnitY = Math.sin(a);
   const perpX = -Math.sin(a);
   const perpY = Math.cos(a);
+
+
 
 
   const purple = highlight ? 'rgba(130, 70, 195, 0.98)' : 'rgba(75, 28, 115, 0.96)';
@@ -1781,8 +2071,12 @@ function drawAstrocyteEndFeetAlongVessel(angleDeg, vesselInnerR, pvsFullWidth, h
   const purpleW = highlight ? 3.4 : 2.7;
 
 
+
+
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+
+
 
 
   for (let xr = r0; xr <= maxR; xr += astrocyteFootRadialStep) {
@@ -1798,6 +2092,8 @@ function drawAstrocyteEndFeetAlongVessel(angleDeg, vesselInnerR, pvsFullWidth, h
       const c1y = by + radialUnitY * astrocyteFootCrossHalf;
 
 
+
+
       ctx.beginPath();
       ctx.moveTo(stemTipX, stemTipY);
       ctx.lineTo(bx, by);
@@ -1806,6 +2102,8 @@ function drawAstrocyteEndFeetAlongVessel(angleDeg, vesselInnerR, pvsFullWidth, h
       ctx.strokeStyle = '#0a0a0a';
       ctx.lineWidth = outlineW;
       ctx.stroke();
+
+
 
 
       ctx.beginPath();
@@ -1819,6 +2117,8 @@ function drawAstrocyteEndFeetAlongVessel(angleDeg, vesselInnerR, pvsFullWidth, h
     }
   }
 }
+
+
 
 
 function drawParticles() {
@@ -1836,6 +2136,8 @@ function drawParticles() {
     ctx.stroke();
   }
 }
+
+
 
 
 function drawHeartIcon(hx, hy, pulse) {
@@ -1857,6 +2159,8 @@ function drawHeartIcon(hx, hy, pulse) {
   ctx.restore();
 
 
+
+
   if (pulse > 0.3) {
     ctx.save();
     ctx.translate(hx - 70 * scale, hy - 55 * scale);
@@ -1872,6 +2176,8 @@ function drawHeartIcon(hx, hy, pulse) {
     ctx.restore();
   }
 }
+
+
 
 
 function drawLungIcon(lx, ly, breathe) {
@@ -1905,13 +2211,19 @@ function drawLungIcon(lx, ly, breathe) {
   ctx.restore();
 
 
+
+
   updatePurpleMolecules();
   updateRadarWaves();
 }
 
 
+
+
 function drawScene(pulse) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+
 
 
   const ae = pulse * 6;
@@ -1921,6 +2233,8 @@ function drawScene(pulse) {
   const vB = veinBreathe;
   const veinColor = `rgb(${Math.floor(vB * 40)}, ${Math.floor(30 + vB * 80)}, ${Math.floor(140 + vB * 115)})`;
   const hr = hoveredRegion;
+
+
 
 
   fillHalfRing(170, 210, Math.PI / 2, 3 * Math.PI / 2, 'mediumseagreen', hr === 'layer4lymph');
@@ -1934,6 +2248,8 @@ function drawScene(pulse) {
   fillRing(0, 50, 'lightblue', hr === 'ventricle');
 
 
+
+
   ctx.fillStyle = 'lightblue';
   ctx.fillRect(cx - 8, cy + 50, 16, 120);
   if (hr === 'channel') {
@@ -1942,14 +2258,20 @@ function drawScene(pulse) {
   }
 
 
+
+
   drawSasMeningealOutlines(hr);
   drawLungIcon(canvas.width - 250, canvas.height - 523, getVeinBreathe(time));
+
+
 
 
   drawVessel(225, 60, blueVeinOuterR, pvsWidth + ve * 0.5, vesselWidth + ve, veinColor);
   drawVessel(315, 60, blueVeinOuterR, pvsWidth + ve * 0.5, vesselWidth + ve, veinColor);
   drawVesselSplit(135, 60, redPvsOuter, redArteryOuterR, pvsWidth, vesselWidth, ac, ae);
   drawVesselSplit(45, 60, redPvsOuter, redArteryOuterR, pvsWidth, vesselWidth, ac, ae);
+
+
 
 
   const pvsWidthVein = pvsWidth + ve * 0.5;
@@ -1960,7 +2282,11 @@ function drawScene(pulse) {
   drawAstrocyteEndFeetAlongVessel(315, 60, pvsWidthVein, astHighlight);
 
 
+
+
   drawCVOVessels();
+
+
 
 
   // Yellow CVO half circle
@@ -1974,6 +2300,8 @@ ctx.fillStyle = hr === 'sensoryCVO' ? '#ff85a8' : '#e8607a';
   ctx.stroke();
 
 
+
+
   // Purple CVO half circle
   ctx.beginPath();
   ctx.arc(cx - 50, cy, 10, -Math.PI / 2, Math.PI / 2, false);
@@ -1985,13 +2313,19 @@ ctx.fillStyle = hr === 'sensoryCVO' ? '#ff85a8' : '#e8607a';
   ctx.stroke();
 
 
+
+
   drawYellowRadar();
   drawPurpleMolecules();
+
+
 
 
   ctx.fillStyle = veinColor;
   ctx.fillRect(cx - (vesselWidth + ve) / 2, veinCsfVerticalTopY, vesselWidth + ve, veinCsfVerticalStemH);
   drawCerebralVeinMolecules(false);
+
+
 
 
   ctx.lineWidth = vesselWidth + ae;
@@ -2000,7 +2334,11 @@ ctx.fillStyle = hr === 'sensoryCVO' ? '#ff85a8' : '#e8607a';
   ctx.beginPath(); ctx.arc(cx, cy, redArcR, 45 * Math.PI / 180, Math.PI / 2, false); ctx.stroke();
 
 
+
+
   drawHeartArteryMolecules(true);
+
+
 
 
   ctx.lineWidth = vesselWidth + ve;
@@ -2009,14 +2347,20 @@ ctx.fillStyle = hr === 'sensoryCVO' ? '#ff85a8' : '#e8607a';
   ctx.beginPath(); ctx.arc(cx, cy, blueArcR, 315 * Math.PI / 180, 3 * Math.PI / 2, true); ctx.stroke();
 
 
+
+
   drawCerebralVeinMolecules(true);
   drawSasParticles();
   drawMacroBlood();
 
 
+
+
   // === CHOROIDAL ARTERY (pulsating red rectangle in layer 2) ===
   drawChoroidArtery(pulse);
   drawChoroidBloodParticles();
+
+
 
 
   // Pulsating choroid plexus
@@ -2027,10 +2371,14 @@ const cpW = 18 + cpExpand;
 const cpH = 30 + cpExpand;
 
 
+
+
 const g = Math.floor(pulse * 40);
 const cpR = 255;
 const cpG = Math.floor(215 + pulse * 40);
 const cpB = Math.floor(0 + pulse * 255);
+
+
 
 
 // Pulsing golden aura (radial halo behind plexus)
@@ -2052,10 +2400,14 @@ const cpB = Math.floor(0 + pulse * 255);
 }
 
 
+
+
 if (pulse > 0.12) {
   ctx.fillStyle = `rgba(255, 220, 110, ${pulse * 0.2})`;
   ctx.fillRect(cpX - 10, cpY - 10, cpW + 20, cpH + 20);
 }
+
+
 
 
 ctx.save();
@@ -2066,9 +2418,13 @@ ctx.fillRect(cpX, cpY, cpW, cpH);
 ctx.restore();
 
 
+
+
 ctx.lineWidth = 2 + pulse * 2;
 ctx.strokeStyle = `rgba(0, 0, 0, ${0.7 + pulse * 0.3})`;
 ctx.strokeRect(cpX, cpY, cpW, cpH);
+
+
 
 
 // Gold villi hanging from inferior border
@@ -2085,6 +2441,8 @@ for (let v = 0; v < villiCount; v++) {
 }
 
 
+
+
 if (hr === 'choroid') {
   ctx.fillStyle = 'rgba(255,255,255,0.3)';
   ctx.fillRect(cpX, cpY, cpW, cpH);
@@ -2095,6 +2453,8 @@ ctx.fillRect(loliBaseX, loliY - loliStickH / 2, loliStickW, loliStickH);
 ctx.strokeStyle = "rgba(0,0,0,0.4)";
 ctx.lineWidth = 1;
 ctx.strokeRect(loliBaseX, loliY - loliStickH / 2, loliStickW, loliStickH);
+
+
 
 
 ctx.fillStyle = "lightblue";
@@ -2112,6 +2472,8 @@ for (const l of granLobeOffsets) {
 }
 
 
+
+
 if (hr === 'arachnoidGran') {
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
   ctx.fillRect(loliBaseX, loliY - loliStickH / 2, loliStickW, loliStickH);
@@ -2126,6 +2488,8 @@ if (hr === 'arachnoidGran') {
   ctx.lineWidth = hr === 'skull' ? 5 : 2;
   ctx.strokeStyle = hr === 'skull' ? '#555' : 'black';
   ctx.stroke();
+
+
 
 
   // Bottom rectangles (layer 4 outflow)
@@ -2173,7 +2537,11 @@ if (hr === 'arachnoidCutoffExits') {
 }
 
 
+
+
 let lastPulseHigh = false;
+
+
 
 
 function animate() {
@@ -2193,6 +2561,8 @@ function animate() {
   drawScene(pulse);
   requestAnimationFrame(animate);
 }
+
+
 
 
 animate();
