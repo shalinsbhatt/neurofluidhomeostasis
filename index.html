@@ -1830,7 +1830,7 @@ function drawVentricleCsfParticles() {
   }
 }
 
-// Median / lateral aperture channel: faded background CSF (visible when choroid secretion flow is OFF)
+// Median / lateral aperture channel: faded background CSF (always; independent of Flow toggle)
 const apertureCsfParticles = [];
 const maxApertureCsfParticles = 40;
 
@@ -1863,7 +1863,6 @@ for (let i = 0; i < maxApertureCsfParticles; i++) {
 }
 
 function updateApertureCsfParticles(pulse) {
-  if (csfFlowEnabled) return;
   const down = 0.36 + pulse * 0.2;
   const pulseWobble = 0.78 + pulse * 0.35;
   for (let i = apertureCsfParticles.length - 1; i >= 0; i--) {
@@ -1887,7 +1886,6 @@ function updateApertureCsfParticles(pulse) {
 }
 
 function drawApertureCsfParticles() {
-  if (csfFlowEnabled) return;
   for (const p of apertureCsfParticles) {
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.radius, 0, 2 * Math.PI);
