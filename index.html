@@ -44,11 +44,18 @@ canvas {border:1px solid #ccc; background:white; cursor:crosshair;}
   position: relative;
   display: inline-block;
 }
-.csf-flow-toggle {
+.atlas-controls {
   position: absolute;
   top: 8px;
   right: 8px;
   z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.csf-flow-toggle {
+  white-space: nowrap;
   font: 600 12px/1 system-ui, -apple-system, sans-serif;
   padding: 6px 12px;
   border-radius: 999px;
@@ -71,6 +78,40 @@ canvas {border:1px solid #ccc; background:white; cursor:crosshair;}
   background: #f0f0f0;
   color: #555;
 }
+.csf-flow-toggle.circadian-toggle-sm {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 4px 8px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+.diurnal-cycle {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
+  overflow: visible;
+}
+.diurnal-sun,
+.diurnal-moon {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform, opacity, filter;
+}
+.diurnal-cycle svg {
+  display: block;
+  width: 36px;
+  height: 36px;
+}
+.diurnal-sun svg {
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.12));
+}
+.diurnal-moon svg {
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.12));
+}
 </style>
 </head>
 <body>
@@ -79,7 +120,34 @@ canvas {border:1px solid #ccc; background:white; cursor:crosshair;}
   <p class="atlas-author">Interactive Model of Cerebral Fluid Dynamics</p>
 </div>
 <div class="atlas-canvas-wrap">
-  <button type="button" id="csfFlowToggle" class="csf-flow-toggle" aria-pressed="false" title="Toggle CSF secretion from the choroid plexus">Flow Off</button>
+  <div id="diurnalCycle" class="diurnal-cycle" hidden>
+    <div class="diurnal-sun" role="img" aria-label="Day phase">
+      <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="20" cy="20" r="9" fill="#ffc940" stroke="#e8a820" stroke-width="1"/>
+        <g stroke="#e8a820" stroke-width="1.5" stroke-linecap="round">
+          <line x1="20" y1="3" x2="20" y2="7"/><line x1="20" y1="33" x2="20" y2="37"/>
+          <line x1="3" y1="20" x2="7" y2="20"/><line x1="33" y1="20" x2="37" y2="20"/>
+          <line x1="8.5" y1="8.5" x2="11.5" y2="11.5"/><line x1="28.5" y1="28.5" x2="31.5" y2="31.5"/>
+          <line x1="31.5" y1="8.5" x2="28.5" y2="11.5"/><line x1="11.5" y1="28.5" x2="8.5" y2="31.5"/>
+        </g>
+      </svg>
+    </div>
+    <div class="diurnal-moon" role="img" aria-label="Night phase">
+      <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <mask id="diurnalMoonCrescentMask">
+            <rect width="40" height="40" fill="white"/>
+            <circle cx="28.5" cy="20" r="8.8" fill="black"/>
+          </mask>
+        </defs>
+        <circle cx="16" cy="20" r="10" fill="#e4eaf5" stroke="#9aaec8" stroke-width="0.55" mask="url(#diurnalMoonCrescentMask)"/>
+      </svg>
+    </div>
+  </div>
+  <div class="atlas-controls">
+    <button type="button" id="csfFlowToggle" class="csf-flow-toggle" aria-pressed="false" title="Toggle CSF secretion from the choroid plexus">Flow Off</button>
+    <button type="button" id="circadianToggle" class="csf-flow-toggle circadian-toggle-sm" aria-pressed="false" title="Toggle circadian modulation of the model">Circadian Dynamics Off</button>
+  </div>
   <canvas id="c" width="500" height="540"></canvas>
 </div>
 <div id="tooltip"></div>
@@ -96,11 +164,102 @@ const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const tooltip = document.getElementById('tooltip');
 const csfFlowToggle = document.getElementById('csfFlowToggle');
+const circadianToggle = document.getElementById('circadianToggle');
+const diurnalCycleEl = document.getElementById('diurnalCycle');
 let csfFlowEnabled = false;
+let circadianDynamicsEnabled = false;
+const DIURNAL_DAY_SECONDS = 10;
+
+function diurnalSmoothstep(edge0, edge1, x) {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+/** 0 = daytime plateau, 1 = night plateau; smooth across dusk/dawn (only when circadian dynamics on). */
+function getCircadianNightStrength() {
+  if (!circadianDynamicsEnabled) return 0;
+  const T = DIURNAL_DAY_SECONDS;
+  const fade = Math.min(2.5, T * 0.25, T / 2 - 0.05);
+  const cyc = 2 * T;
+  const t = (performance.now() / 1000 + T) % cyc;
+  if (t < T - fade) return 0;
+  if (t < T) {
+    const p = (t - (T - fade)) / fade;
+    return diurnalSmoothstep(0.12, 0.92, p);
+  }
+  if (t < 2 * T - fade) return 1;
+  const p = (t - (2 * T - fade)) / fade;
+  return 1 - diurnalSmoothstep(0.12, 0.92, p);
+}
+
+function updateDiurnalOverlay() {
+  if (!diurnalCycleEl) return;
+  const sun = diurnalCycleEl.querySelector('.diurnal-sun');
+  const moon = diurnalCycleEl.querySelector('.diurnal-moon');
+  if (!sun || !moon) return;
+  if (!circadianDynamicsEnabled) {
+    diurnalCycleEl.hidden = true;
+    sun.style.transform = '';
+    sun.style.filter = '';
+    moon.style.transform = '';
+    moon.style.filter = '';
+    return;
+  }
+  diurnalCycleEl.hidden = false;
+  const T = DIURNAL_DAY_SECONDS;
+  const fade = Math.min(2.5, T * 0.25, T / 2 - 0.05);
+  const cyc = 2 * T;
+  let t = (performance.now() / 1000 + T) % cyc;
+  let sunOp = 0;
+  let moonOp = 0;
+  sun.style.transform = '';
+  sun.style.filter = '';
+  moon.style.transform = '';
+  moon.style.filter = '';
+
+  if (t < T - fade) {
+    sunOp = 1;
+    moonOp = 0;
+  } else if (t < T) {
+    const p = (t - (T - fade)) / fade;
+    const moonRise = diurnalSmoothstep(0.32, 0.95, p);
+    const sunSink = diurnalSmoothstep(0, 0.88, p);
+    sunOp = 1 - diurnalSmoothstep(0.42, 0.98, p);
+    moonOp = moonRise;
+    sun.style.transform = `translateY(${sunSink * 11}px)`;
+    sun.style.filter = `drop-shadow(0 ${2 + p * 5}px ${4 + p * 10}px rgba(255, 120, 40, ${0.35 + p * 0.45})) hue-rotate(${-8 + p * 28}deg) saturate(${1 + p * 0.55}) brightness(${1 - p * 0.22})`;
+    moon.style.transform = `translateY(${(1 - moonRise) * -9}px)`;
+    moon.style.filter = `brightness(${0.75 + moonRise * 0.28})`;
+  } else if (t < 2 * T - fade) {
+    sunOp = 0;
+    moonOp = 1;
+  } else {
+    const p = (t - (2 * T - fade)) / fade;
+    const sunRise = diurnalSmoothstep(0.32, 0.95, p);
+    const moonSink = diurnalSmoothstep(0, 0.88, p);
+    moonOp = 1 - diurnalSmoothstep(0.42, 0.98, p);
+    sunOp = sunRise;
+    moon.style.transform = `translateY(${moonSink * 10}px)`;
+    moon.style.filter = `brightness(${1 - p * 0.35})`;
+    sun.style.transform = `translateY(${(1 - sunRise) * -10}px)`;
+    sun.style.filter = `drop-shadow(0 -${1 + p * 3}px ${3 + p * 8}px rgba(255, 130, 55, ${0.25 + p * 0.4})) hue-rotate(${12 - p * 18}deg) saturate(${1.1 + p * 0.35}) brightness(${0.82 + sunRise * 0.22})`;
+  }
+  sun.style.opacity = String(sunOp);
+  moon.style.opacity = String(moonOp);
+  sun.setAttribute('aria-hidden', sunOp < 0.08 ? 'true' : 'false');
+  moon.setAttribute('aria-hidden', moonOp < 0.08 ? 'true' : 'false');
+}
+
 csfFlowToggle.addEventListener('click', () => {
   csfFlowEnabled = !csfFlowEnabled;
   csfFlowToggle.setAttribute('aria-pressed', csfFlowEnabled ? 'true' : 'false');
   csfFlowToggle.textContent = csfFlowEnabled ? 'Flow On' : 'Flow Off';
+});
+circadianToggle.addEventListener('click', () => {
+  circadianDynamicsEnabled = !circadianDynamicsEnabled;
+  circadianToggle.setAttribute('aria-pressed', circadianDynamicsEnabled ? 'true' : 'false');
+  circadianToggle.textContent = circadianDynamicsEnabled ? 'Circadian Dynamics On' : 'Circadian Dynamics Off';
+  updateDiurnalOverlay();
 });
 const cx = 250, cy = 250;
 
@@ -157,6 +316,8 @@ const apertureHalfW = 8;
 const apertureTopY = cy + 50;
 const apertureBottomY = cy + 170;
 const meningeRingHitTol = 4.5;
+const ventricleCsfInnerR = 10;
+const ventricleCsfOuterR = 46;
 // Layer-4 half-ring uses radii 170–210; midpoint — superior midline cerebral vein + CSF ascent extend to here (r from center)
 const layer4AnnulusMidR = (170 + 210) / 2;
 const veinCsfVerticalTopY = cy - layer4AnnulusMidR;
@@ -179,7 +340,7 @@ const exitBloodRectW = 35;
 
 
 
-// Arachnoid granulation (right trilobe + stick) and cutoff exits (left 3 circles) — shared by detectRegion & drawScene
+// Arachnoid granulation (right trilobe + stick) and ACE exits — shared by detectRegion & drawScene
 const arachnoidHitPad = 3;
 const loliY = cy - 190;
 const loliTipX = cx + 30;
@@ -202,6 +363,15 @@ const arachnoidCutoffCircleXs = [
   cutoffLoli2TipX,
   cutoffLoli2TipX + cutoffCenterSpacing
 ];
+// ACE between L3 and L4: three touching circles at y = cy (same plane as CVOs); middle circle centered on arachnoid mater (SAS outer boundary r = sasLayerOuterR)
+const aceLayer34Y = cy;
+const aceLayer34MidlineX = cx - sasLayerOuterR;
+const aceLayer34LeftOuterX = aceLayer34MidlineX - cutoffCenterSpacing;
+const aceLayer34Points = [
+  { x: aceLayer34LeftOuterX, y: aceLayer34Y },
+  { x: aceLayer34LeftOuterX + cutoffCenterSpacing, y: aceLayer34Y },
+  { x: aceLayer34LeftOuterX + 2 * cutoffCenterSpacing, y: aceLayer34Y }
+];
 
 
 
@@ -210,8 +380,11 @@ const arachnoidCutoffCircleXs = [
 
 
 
-const bpm = 72;
-const pulseFreq = bpm / 60;
+const bpm = 80;
+const simulationSpeedMultiplier = 1.0;
+const pulseFreq = (bpm / 60) * simulationSpeedMultiplier;
+const respiratoryRate = 12;
+const breatheFreq = (respiratoryRate / 60) * simulationSpeedMultiplier;
 let time = 0;
 const dt = 1 / 60;
 
@@ -236,8 +409,9 @@ let mouseX = -1, mouseY = -1;
 const regionInfo = {
  skull:        { title: 'Skull (Calvarium)', desc: 'Rigid bony enclosure protecting the brain and maintaining intracranial pressure.' },
   ventricle:    { title: 'Ventricular System', desc: 'CSF is produced here by the choroid plexus and flows through a set of four interconnected, fluid-filled cavities.' },
-  choroid:      { title: 'Choroid Plexus', desc: 'Specialized, highly vascularized network of cells located in the ventricles, primarily responsible for producing cerebrospinal fluid (CSF) and forming the blood-CSF barrier. CSF is produced in a pulsatile fashion.' },
+  choroid:      { title: 'Choroid Plexus', desc: 'Specialized, highly vascularized network of cells located in the ventricles, primarily responsible for producing cerebrospinal fluid (CSF) and forming the blood-CSF barrier. CSF secretion is modeled as steady here; cardiac pulsatility appears in arteries.' },
   parenchyma:   { title: 'Brain & Spine Parenchyma', desc: 'Neural tissue where interstitial fluid exchanges solutes and waste via glymphatic flow.' },
+  hypothalamus: { title: 'Hypothalamus', desc: 'A region of the forebrain below the thalamus which coordinates both the autonomic nervous system and the activity of the pituitary, controlling body temperature, thirst, hunger, and other homeostatic systems, and is involved in sleep and emotional activity. Connectivity to CVOs. Projections from hypothalamus to heart & lungs are metaphorical and meant to illustrate regulation of heart rate, blood pressure, and breathing by controlling the autonomic nervous system (ANS), which directly acts on cardiovascular and respiratory functions in response to stress or metabolic needs. Worth noting the thalamus, right above hypothalamus, regulates consciousness.' },
   sas:          { title: 'Subarachnoid Space', desc: 'The anatomical interval between the arachnoid mater and pia mater, surrounding the brain and spinal cord, filled with cerebrospinal fluid (CSF), blood vessels, and spider-web-like trabeculae.' },
   piaMater:     { title: 'Pia Mater', desc: 'The inner meningeal layer, closely investing the brain and spinal cord; with the arachnoid mater it bounds the subarachnoid space.' },
   arachnoidMater: { title: 'Arachnoid Mater', desc: 'The middle meningeal layer; its deep surface faces the subarachnoid space and separates it from the epidural/subdural compartments toward the dura.' },
@@ -251,10 +425,10 @@ const regionInfo = {
   exitBlood:    { title: 'Venous Drainage', desc: 'Terminal drainage into systemic venous circulation.' },
   exitArtery:   { title: 'Arterial Supply', desc: 'Internal Carotid and Vertebral Arteries entering the brain & spinal cord.' },
   channel:      { title: 'Median and Lateral Apertures', desc: 'CSF conduit from ventricular system into subarachnoid space.' },
- secretoryCVO: { title: 'Secretory Circumventricular Organ', desc: 'Specialized, highly vascularized brain structures lining the ventricular walls and lacking a complete blood-brain barrier, allowing them to release hormones and neuroactive peptides directly into CSF and the bloodstream. They include the neurohypophysis (posterior pituitary), median eminence, subcommissural organ, and pineal gland. Note: the SCO retains a relatively intact BBB.' },
-sensoryCVO:   { title: 'Sensory Circumventricular Organ', desc: 'Specialized, highly vascularized brain structures lining the ventricular walls and lacking a complete blood-brain barrier, allowing them to directly monitor CSF and blood-borne signals, including hormones, toxins, and electrolytes. The primary sensory CVOs include the Subfornical Organ, Organum Vasculosum of the Lamina Terminalis, and Area Postrema.' },
+ secretoryCVO: { title: 'Secretory Circumventricular Organ', desc: 'Specialized, highly vascularized brain structures lining the ventricular walls and lacking a complete blood-brain barrier, allowing them to release hormones and neuroactive peptides directly into CSF and the bloodstream. They include the neurohypophysis (posterior pituitary), median eminence, subcommissural organ, and pineal gland. Note: the SCO retains a relatively intact BBB. In this diagram, the tan bridge schematically projects toward the hypothalamus (central ventricular core).' },
+sensoryCVO:   { title: 'Sensory Circumventricular Organ', desc: 'Specialized, highly vascularized brain structures lining the ventricular walls and lacking a complete blood-brain barrier, allowing them to directly monitor CSF and blood-borne signals, including hormones, toxins, and electrolytes. The primary sensory CVOs include the Subfornical Organ, Organum Vasculosum of the Lamina Terminalis, and Area Postrema. In this diagram, the tan bridge schematically projects toward the hypothalamus (central ventricular core).' },
 emField:      { title: 'Hypothesized Electromagnetic Field (GVF)', desc: 'Ions (Na⁺, K⁺, Cl⁻, Ca²⁺, Mg²⁺) in conductive medium (CSF) and in motion through perivascular spaces generate weak electromagnetic fields via moving charged particles, consistent with Maxwell\'s equations for current-carrying fluids.' },
-choroidArtery: { title: 'Choroidal Artery', desc: 'Branch of the internal carotid artery (anterior choroidal artery) and posterior cerebral artery (posterior choroidal arteries) that supplies the choroid plexus with arterial blood. Blood plasma is filtered across the choroidal epithelium to produce CSF in a pulsatile fashion synchronized with cardiac rhythm.' },
+choroidArtery: { title: 'Choroidal Artery', desc: 'Branch of the internal carotid artery (anterior choroidal artery) and posterior cerebral artery (posterior choroidal arteries) that supplies the choroid plexus with arterial blood. Arterial inflow is pulsatile; CSF secretion is modeled as steady for clarity.' },
 arachnoidGran: { title: "Arachnoid Granulation", desc: "Small outpouchings of the arachnoid membrane that protrude into the dural venous sinuses, serving as the classical site for reabsorption of CSF into the venous bloodstream." },
 arachnoidCutoffExits: { title: "Arachnoid Cutoff Exits (ACE)", desc: "Arachnoid cuff exit (ACE)–class routes where CSF and solutes exit the subarachnoid space into dural compartments toward meningeal lymphatic drainage, complementing reabsorption through arachnoid granulations. Emerging evidence of bidrectionality." },
 astrocyteEndFeet: { title: "Astrocyte End Feet", desc: "Perivascular astrocyte processes that ensheath cerebral microvessels at the glia limitans, helping regulate blood–brain exchange, ion homeostasis, and fluid coupling between parenchyma and perivascular spaces." },
@@ -773,6 +947,10 @@ function detectRegion(mx, my) {
     const cd = Math.hypot(mx - x, my - loliY);
     if (cd <= cutoffHitR) return 'arachnoidCutoffExits';
   }
+  for (const pt of aceLayer34Points) {
+    const cd = Math.hypot(mx - pt.x, my - pt.y);
+    if (cd <= cutoffHitR) return 'arachnoidCutoffExits';
+  }
 
 
 
@@ -813,6 +991,7 @@ function detectRegion(mx, my) {
 
 
 
+  if (dist <= ventricleCsfInnerR + 1.5) return 'hypothalamus';
   if (dist <= 50) return 'ventricle';
   if (dist <= sasLayerInnerR) return 'parenchyma';
   if (Math.abs(dist - sasLayerOuterR) <= meningeRingHitTol && dist > sasLayerInnerR + 2 && dist <= sasLayerOuterR + 1) {
@@ -913,7 +1092,7 @@ function clampExitArteryColumn(p, pulse) {
 
 
 function getVeinBreathe(t) {
-  return Math.sin(t * 0.25 * Math.PI * 2) * 0.5 + 0.5;
+  return Math.sin(t * breatheFreq * Math.PI * 2) * 0.5 + 0.5;
 }
 
 
@@ -1331,7 +1510,7 @@ function spawnBurst(count) {
     particles.push({
       x: cx + (Math.random() - 0.5) * 12,
       y: cy - 35 + Math.random() * 10,
-      phase: 0, speed: 0.675, angle: 0, orbitR: 0, direction: 0,
+      phase: 0, speed: 0.88, angle: 0, orbitR: 0, direction: 0,
       radius: 2.45 + Math.random() * 1.2, opacity: 0.85,
       vesselAngle: 0, vesselR: 0, pvsOffset: 0,
       parenchymaLayer: Math.random() < 0.5 ? 0 : 1,
@@ -1356,10 +1535,42 @@ function spawnBurst(count) {
 
 
 
+/** Secretory CVO to CSF: same path as bulk CSF tracers; spawn near purple CVO ventricular face; night-only when circadian is on. */
+function spawnCvoSecretedCsfBurst(count) {
+  const c = count % 2 === 0 ? count : count + 1;
+  for (let i = 0; i < c; i++) {
+    const pathIdx = spawnSide;
+    spawnSide = 1 - spawnSide;
+    particles.push({
+      x: cx - 50 + 4 + Math.random() * 14,
+      y: cy - 34 + Math.random() * 36,
+      phase: 0, speed: 0.88, angle: 0, orbitR: 0, direction: 0,
+      radius: 2.15 + Math.random() * 1.05, opacity: 0.9,
+      vesselAngle: 0, vesselR: 0, pvsOffset: 0,
+      parenchymaLayer: Math.random() < 0.5 ? 0 : 1,
+      pathIdx: pathIdx, currentAngle: 0, targetAngle: 0, traverseR: 0,
+      life: 0, orbitTarget: 0,
+      fate: null, color: null,
+      inPVS: false,
+      emRadius: 0,
+      emMaxRadius: 22 + Math.random() * 10,
+      emPhase: Math.random() * Math.PI * 2,
+      emFreq: 1.5 + Math.random() * 2.0,
+      prevX: 0, prevY: 0,
+      emIntensity: 0,
+      cvoSecreted: true
+    });
+  }
+}
+
 function updateParticles(pulse) {
   const pulseMult = 0.5 + pulse * 1.5;
   const breathe = getVeinBreathe(time);
   const breatheMult = 0.5 + breathe * 1.0;
+  const csfFlowSpeedMult = csfFlowEnabled ? 0.9 : 1;
+  const nightStr = getCircadianNightStrength();
+  const glymphCircadianMult = circadianDynamicsEnabled ? 0.76 + 0.48 * nightStr : 1;
+  // Cardiac pulsatility in arteries (2–3) and brain parenchyma traverse (4); ventricle/aperture (0–1) steady; venous (5+) respiratory.
 
 
 
@@ -1370,7 +1581,12 @@ function updateParticles(pulse) {
 
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
-    const s = p.speed * (p.phase < 5 ? pulseMult : breatheMult);
+    let speedMult;
+    if (p.phase < 2) speedMult = 1;
+    else if (p.phase < 5) speedMult = pulseMult;
+    else speedMult = breatheMult;
+    const glymphClearanceMult = p.phase >= 2 && p.phase < 5 ? glymphCircadianMult : 1;
+    const s = p.speed * speedMult * csfFlowSpeedMult * glymphClearanceMult;
     const path = paths[p.pathIdx];
 
 
@@ -1741,12 +1957,119 @@ function drawSasParticles() {
   }
 }
 
+// Lymph tracers from ACE (CVO-line row) into SAS when CSF flow is on — sequestered to SAS annulus (same radii as fillRing)
+const aceLymphParticles = [];
+const maxAceLymphParticles = 34;
+const aceLymphSpawnRate = 4.8;
+let aceLymphSpawnAccum = 0;
+const aceLymphSasIn = sasLayerInnerR + 1.2;
+const aceLymphSasOut = sasLayerOuterR - 1.2;
+
+function clampAceLymphToSas(p) {
+  let dx = p.x - cx;
+  let dy = p.y - cy;
+  let dist = Math.hypot(dx, dy);
+  if (dist < 1e-9) {
+    p.x = cx + aceLymphSasIn;
+    p.y = cy;
+    dx = aceLymphSasIn;
+    dy = 0;
+    dist = aceLymphSasIn;
+  }
+  const nx = dx / dist;
+  const ny = dy / dist;
+  let vr = p.vx * nx + p.vy * ny;
+  if (dist < aceLymphSasIn) {
+    p.x = cx + nx * aceLymphSasIn;
+    p.y = cy + ny * aceLymphSasIn;
+    if (vr < 0) {
+      p.vx -= 2 * vr * nx;
+      p.vy -= 2 * vr * ny;
+    }
+  } else if (dist > aceLymphSasOut) {
+    p.x = cx + nx * aceLymphSasOut;
+    p.y = cy + ny * aceLymphSasOut;
+    vr = p.vx * nx + p.vy * ny;
+    if (vr > 0) {
+      p.vx -= 2 * vr * nx;
+      p.vy -= 2 * vr * ny;
+    }
+  }
+}
+
+function spawnAceLymphParticle() {
+  const pt = aceLayer34Points[Math.floor(Math.random() * aceLayer34Points.length)];
+  const dx = cx - pt.x;
+  const dy = cy - pt.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const spd = 0.48 + Math.random() * 0.42;
+  aceLymphParticles.push({
+    x: pt.x + (Math.random() - 0.5) * 5,
+    y: pt.y + (Math.random() - 0.5) * 4,
+    vx: (dx / len) * spd,
+    vy: (dy / len) * spd,
+    radius: 1.1 + Math.random() * 0.85,
+    opacity: 0.5 + Math.random() * 0.38,
+    life: 0,
+    maxLife: 260 + Math.floor(Math.random() * 180)
+  });
+  clampAceLymphToSas(aceLymphParticles[aceLymphParticles.length - 1]);
+}
+
+function updateAceLymphParticles() {
+  const nightStr = getCircadianNightStrength();
+  const dayStr = 1 - nightStr;
+  const lymphAceMult = circadianDynamicsEnabled ? 0.45 + 0.78 * nightStr : 1;
+  const aceLymphCap = circadianDynamicsEnabled ? Math.round(30 + 36 * nightStr) : maxAceLymphParticles;
+  const aceLymphVelMult = circadianDynamicsEnabled ? 0.3 + 0.92 * (1 - nightStr) : 1;
+  if (csfFlowEnabled) {
+    aceLymphSpawnAccum += aceLymphSpawnRate * lymphAceMult * dt;
+    while (aceLymphSpawnAccum >= 1 && aceLymphParticles.length < aceLymphCap) {
+      spawnAceLymphParticle();
+      aceLymphSpawnAccum -= 1;
+    }
+  } else {
+    aceLymphSpawnAccum = 0;
+  }
+  for (let i = aceLymphParticles.length - 1; i >= 0; i--) {
+    const p = aceLymphParticles[i];
+    p.x += p.vx * aceLymphVelMult;
+    p.y += p.vy * aceLymphVelMult;
+    clampAceLymphToSas(p);
+    p.life++;
+    const dist = Math.hypot(p.x - cx, p.y - cy);
+    if (dist <= aceLymphSasOut && dist >= aceLymphSasIn) {
+      const sasDamp = circadianDynamicsEnabled ? 0.991 + 0.005 * dayStr : 0.993;
+      p.vx *= sasDamp;
+      p.vy *= sasDamp;
+    }
+    if (circadianDynamicsEnabled && csfFlowEnabled) {
+      p.opacity -= 0.0038 * dayStr;
+    }
+    if (!csfFlowEnabled) p.opacity -= 0.06;
+    if (p.life > p.maxLife - 90) p.opacity -= 0.012 + 0.014 * dayStr;
+    if (p.opacity <= 0 || p.life >= p.maxLife) {
+      aceLymphParticles.splice(i, 1);
+    }
+  }
+}
+
+function drawAceLymphParticles() {
+  for (const p of aceLymphParticles) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, 2 * Math.PI);
+    ctx.fillStyle = `rgba(32, 145, 90, ${p.opacity})`;
+    ctx.fill();
+    ctx.lineWidth = 0.48;
+    ctx.strokeStyle = `rgba(0, 55, 28, ${p.opacity * 0.55})`;
+    ctx.stroke();
+  }
+}
+
 
 // Layer 1 (ventricle): faded CSF — net flow downward (toward apertures), with light lateral wobble; clamped to annulus
 const ventricleCsfParticles = [];
 const maxVentricleCsfParticles = 52;
-const ventricleCsfInnerR = 10;
-const ventricleCsfOuterR = 46;
 
 
 function ventricleClampToAnnulus(p) {
@@ -1794,9 +2117,9 @@ for (let i = 0; i < maxVentricleCsfParticles; i++) {
 }
 
 
-function updateVentricleCsfParticles(pulse) {
-  const down = 0.38 + pulse * 0.22;
-  const pulseWobble = 0.78 + pulse * 0.35;
+function updateVentricleCsfParticles() {
+  const down = 0.49;
+  const pulseWobble = 0.955;
   for (let i = ventricleCsfParticles.length - 1; i >= 0; i--) {
     const p = ventricleCsfParticles[i];
     p.wobblePhase += p.wobbleSpeed * pulseWobble;
@@ -1862,9 +2185,9 @@ for (let i = 0; i < maxApertureCsfParticles; i++) {
   apertureCsfParticles[i].life = Math.floor(Math.random() * apertureCsfParticles[i].maxLife);
 }
 
-function updateApertureCsfParticles(pulse) {
-  const down = 0.36 + pulse * 0.2;
-  const pulseWobble = 0.78 + pulse * 0.35;
+function updateApertureCsfParticles() {
+  const down = 0.46;
+  const pulseWobble = 0.955;
   for (let i = apertureCsfParticles.length - 1; i >= 0; i--) {
     const p = apertureCsfParticles[i];
     p.wobblePhase += p.wobbleSpeed * pulseWobble;
@@ -1929,12 +2252,12 @@ function spawnHeartArteryMolecule(pulse) {
     phase: 'stem',
     x: st.x,
     y: st.y,
-    vy: -(0.52 + Math.random() * 0.48),
+    vy: -(0.64 + Math.random() * 0.56),
     radius: 0.85 + Math.random() * 0.75,
     opacity: Math.min(1, (0.14 + Math.random() * 0.2) * 7),
     life: 0,
     pathIdx: Math.random() < 0.5 ? 0 : 1,
-    arcSpeed: 0.0032 + Math.random() * 0.0042
+    arcSpeed: 0.0041 + Math.random() * 0.0054
   });
 }
 
@@ -2073,19 +2396,19 @@ function spawnCerebralVeinMolecule() {
       radius: 1.05 + Math.random() * 0.88,
       opacity: Math.min(1, (0.13 + Math.random() * 0.2) * (0.88 + vB * 0.2) * 7),
       life: 0,
-      arcSpeed: 0.0032 + Math.random() * 0.0042
+      arcSpeed: 0.0041 + Math.random() * 0.0054
     });
   } else {
     cerebralVeinMolecules.push({
       phase: 'stem',
       x: cx + (Math.random() - 0.5) * colHalf * 1.15,
       y: veinStemBottomY - Math.random() * 8,
-      vy: -(0.46 + Math.random() * 0.44),
+      vy: -(0.58 + Math.random() * 0.54),
       radius: 1.05 + Math.random() * 0.88,
       opacity: Math.min(1, (0.13 + Math.random() * 0.2) * (0.88 + vB * 0.2) * 7),
       life: 0,
       pathIdx,
-      arcSpeed: 0.0032 + Math.random() * 0.0042
+      arcSpeed: 0.0041 + Math.random() * 0.0054
     });
   }
 }
@@ -2290,6 +2613,69 @@ function drawLayer4Particles() {
 
 
 
+// === MENINGEAL LYMPH VESSELS (left green half-ring): pool at night — slow drift; drain by day — faster egress + fade ===
+const meningealLymphPoolParticles = [];
+
+function updateMeningealLymphPoolParticles() {
+  const nightStr = getCircadianNightStrength();
+  const dayStr = 1 - nightStr;
+  if (!circadianDynamicsEnabled) {
+    meningealLymphPoolParticles.length = 0;
+    return;
+  }
+  const cap = Math.floor(10 + 108 * nightStr * nightStr);
+  for (let i = meningealLymphPoolParticles.length - 1; i >= 0; i--) {
+    const p = meningealLymphPoolParticles[i];
+    const dayDrainMult = 1 + 1.05 * dayStr;
+    p.angle += p.angularSpeed * dayDrainMult;
+    p.angle += 0.002 * dayStr;
+    p.radialPhase += 0.011 + 0.014 * nightStr;
+    p.r = p.baseR + Math.sin(p.radialPhase) * (3.5 + 7 * nightStr) * (1 - 0.35 * dayStr);
+    p.r = Math.max(layer4InnerR, Math.min(layer4OuterR, p.r));
+    p.life++;
+    p.opacity -= 0.019 * dayStr;
+    if (p.life > p.maxLife - 140) p.opacity -= 0.0035 + 0.003 * (1 - nightStr) + 0.012 * dayStr;
+    if (p.opacity <= 0 || p.life >= p.maxLife) {
+      meningealLymphPoolParticles.splice(i, 1);
+    }
+  }
+  while (meningealLymphPoolParticles.length > cap) {
+    meningealLymphPoolParticles.pop();
+  }
+  const speedNightBias = 1 - 0.82 * nightStr;
+  while (meningealLymphPoolParticles.length < cap) {
+    const angle = Math.PI / 2 + Math.random() * Math.PI;
+    const r = layer4InnerR + Math.random() * (layer4OuterR - layer4InnerR);
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    meningealLymphPoolParticles.push({
+      angle,
+      r,
+      baseR: r,
+      angularSpeed: (0.0026 + Math.random() * 0.0042) * speedNightBias * dir,
+      radialPhase: Math.random() * Math.PI * 2,
+      radius: 1.0 + Math.random() * 1.05,
+      opacity: (0.32 + 0.52 * nightStr) * (0.72 + Math.random() * 0.28),
+      life: 0,
+      maxLife: 220 + Math.floor(Math.random() * 220) + Math.floor(520 * nightStr * nightStr) - Math.floor(180 * dayStr * dayStr)
+    });
+  }
+}
+
+function drawMeningealLymphPoolParticles() {
+  for (const p of meningealLymphPoolParticles) {
+    const x = cx + Math.cos(p.angle) * p.r;
+    const y = cy + Math.sin(p.angle) * p.r;
+    if (x > cx + 1.5) continue;
+    ctx.beginPath();
+    ctx.arc(x, y, p.radius, 0, 2 * Math.PI);
+    ctx.fillStyle = `rgba(32, 145, 90, ${p.opacity})`;
+    ctx.fill();
+    ctx.lineWidth = 0.45;
+    ctx.strokeStyle = `rgba(0, 55, 28, ${p.opacity * 0.5})`;
+    ctx.stroke();
+  }
+}
+
 // === EXIT RECTANGLE DRAIN (layer 4 outflow continuation) ===
 // Match layer 4 molecule look; modest count so bottom box stays readable (fixed; not scaled with layer-4 ring density).
 const exitDrainParticles = [];
@@ -2319,6 +2705,23 @@ function spawnExitDrainParticle() {
   });
 }
 
+function spawnLymphExitDrainParticle() {
+  const left = exitBloodRectX;
+  const w = exitBloodRectW;
+  const dayStr = 1 - getCircadianNightStrength();
+  exitDrainParticles.push({
+    x: left + Math.random() * w * 0.42,
+    y: exitRectTopY - Math.random() * exitDrainInflowBand + Math.random() * (exitRectH * 0.22 + 4),
+    vx: (Math.random() - 0.5) * 0.14,
+    vy: 0.24 + Math.random() * 0.34 + 0.2 * dayStr * dayStr,
+    radius: 1.05 + Math.random() * 0.95,
+    opacity: 0.45 + Math.random() * 0.42,
+    life: 0,
+    maxLife: 260 + Math.floor(Math.random() * 220),
+    isLymph: true
+  });
+}
+
 
 
 
@@ -2339,18 +2742,29 @@ for (let i = 0; i < maxExitDrainPerSide; i++) {
 
 
 function updateExitDrainParticles() {
+  const nightStr = getCircadianNightStrength();
+  const dayStr = 1 - nightStr;
+  const lymphExitTarget = circadianDynamicsEnabled ? Math.floor(22 * dayStr * dayStr) : 0;
+  const countLymph = () => {
+    let n = 0;
+    for (const q of exitDrainParticles) if (q.isLymph) n++;
+    return n;
+  };
+  const countBlue = () => exitDrainParticles.length - countLymph();
+
   for (let i = exitDrainParticles.length - 1; i >= 0; i--) {
     const p = exitDrainParticles[i];
-    if (p.isLymph) {
+    if (!circadianDynamicsEnabled && p.isLymph) {
       exitDrainParticles.splice(i, 1);
       continue;
     }
+    const lymphBoost = p.isLymph ? 1.05 + 0.38 * dayStr : 1;
     p.x += p.vx + (Math.random() - 0.5) * 0.035;
-    p.y += p.vy * (0.92 + Math.random() * 0.08);
+    p.y += p.vy * (0.92 + Math.random() * 0.08) * lymphBoost;
     p.vx += (Math.random() - 0.5) * 0.018;
     p.life++;
     if (p.life > p.maxLife - 60) {
-      p.opacity -= 0.008;
+      p.opacity -= p.isLymph ? 0.009 + 0.006 * (1 - dayStr) : 0.008;
     }
     const left = exitBloodRectX;
     const w = exitBloodRectW;
@@ -2360,7 +2774,17 @@ function updateExitDrainParticles() {
       exitDrainParticles.splice(i, 1);
     }
   }
-  while (exitDrainParticles.length < maxExitDrainPerSide) spawnExitDrainParticle();
+  while (countBlue() < maxExitDrainPerSide) spawnExitDrainParticle();
+  while (countLymph() < lymphExitTarget) spawnLymphExitDrainParticle();
+  while (countLymph() > lymphExitTarget) {
+    for (let j = exitDrainParticles.length - 1; j >= 0; j--) {
+      if (exitDrainParticles[j].isLymph) {
+        exitDrainParticles.splice(j, 1);
+        break;
+      }
+    }
+    if (countLymph() <= lymphExitTarget) break;
+  }
 }
 
 
@@ -2372,12 +2796,16 @@ function updateExitDrainParticles() {
 
 function drawExitDrainParticlesSubset(inflowBandOnly) {
   for (const p of exitDrainParticles) {
-    if (p.isLymph) continue;
     if (inflowBandOnly ? p.y >= exitRectTopY : p.y < exitRectTopY) continue;
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.radius, 0, 2 * Math.PI);
-    ctx.fillStyle = `rgba(100, 149, 237, ${p.opacity})`;
-    ctx.strokeStyle = `rgba(0, 0, 139, ${p.opacity * 0.5})`;
+    if (p.isLymph) {
+      ctx.fillStyle = `rgba(32, 145, 90, ${p.opacity})`;
+      ctx.strokeStyle = `rgba(0, 55, 28, ${p.opacity * 0.55})`;
+    } else {
+      ctx.fillStyle = `rgba(100, 149, 237, ${p.opacity})`;
+      ctx.strokeStyle = `rgba(0, 0, 139, ${p.opacity * 0.5})`;
+    }
     ctx.fill();
     ctx.lineWidth = 0.5;
     ctx.stroke();
@@ -3015,16 +3443,24 @@ function drawParticles() {
     const rDraw = p.radius * (outerLayer ? 1.38 : 1);
     ctx.beginPath();
     ctx.arc(p.x, p.y, rDraw, 0, 2 * Math.PI);
-    if (p.phase >= 8 && p.color) {
+    if (p.cvoSecreted) {
+      ctx.fillStyle = `rgba(148, 0, 211, ${p.opacity})`;
+    } else if (p.phase >= 8 && p.color) {
       ctx.fillStyle = p.color.replace('ALPHA', p.opacity.toString());
     } else {
       ctx.fillStyle = `rgba(173, 216, 230, ${p.opacity})`;
     }
     ctx.fill();
     ctx.lineWidth = outerLayer ? 1.05 : 0.8;
-    ctx.strokeStyle = outerLayer
-      ? `rgba(15, 55, 120, ${Math.min(1, p.opacity * 1.05)})`
-      : `rgba(0, 0, 0, ${p.opacity})`;
+    if (p.cvoSecreted) {
+      ctx.strokeStyle = outerLayer
+        ? `rgba(110, 25, 160, ${Math.min(1, p.opacity * 1.08)})`
+        : `rgba(75, 0, 110, ${p.opacity})`;
+    } else {
+      ctx.strokeStyle = outerLayer
+        ? `rgba(15, 55, 120, ${Math.min(1, p.opacity * 1.05)})`
+        : `rgba(0, 0, 0, ${p.opacity})`;
+    }
     ctx.stroke();
   }
 }
@@ -3160,13 +3596,107 @@ function drawScene(pulse) {
   fillHalfRing(170, 210, Math.PI / 2, 3 * Math.PI / 2, 'mediumseagreen', hr === 'layer4lymph');
   fillHalfRing(170, 210, 3 * Math.PI / 2, Math.PI / 2, 'cornflowerblue', hr === 'layer4blood');
   updateLayer4Particles();
+  updateMeningealLymphPoolParticles();
   drawLayer4Particles();
+  drawMeningealLymphPoolParticles();
   updateExitDrainParticles();
   drawExitDrainParticlesSubset(true);
   fillRing(sasLayerInnerR, sasLayerOuterR, 'lightblue', hr === 'sas');
   fillRing(50, sasLayerInnerR, 'tan', hr === 'parenchyma');
-  fillRing(0, 50, 'lightblue', hr === 'ventricle');
+  ctx.beginPath();
+  ctx.arc(cx, cy, ventricleCsfInnerR, 0, 2 * Math.PI);
+  ctx.fillStyle = 'tan';
+  ctx.fill();
+  if (hr === 'hypothalamus') {
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fill();
+  }
+  fillRing(ventricleCsfInnerR, 50, 'lightblue', hr === 'ventricle');
   drawVentricleCsfParticles();
+  // Four small tan diamonds on diagonals; inner vertex on hypothalamus rim; tail elongates slightly toward ventricular outer perimeter (r = 50), incl. midline (cy±50)
+  {
+    const s = Math.SQRT1_2;
+    const R = ventricleCsfInnerR;
+    const bs = 3.1;
+    const halfDiag = bs / Math.SQRT2;
+    const t = R + halfDiag;
+    const rOuter = R + 2 * halfDiag;
+    const ventR = 50;
+    const dirs = [[s, s], [-s, -s], [-s, s], [s, -s]];
+    const skullStrokeR = 210;
+    const pastSkullPx = 11 * 1.15 + 7;
+    const lungIconLX = canvas.width - 250;
+    const lungIconLY = canvas.height - 523;
+    ctx.fillStyle = 'tan';
+    ctx.strokeStyle = 'tan';
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    for (const [ux, uy] of dirs) {
+      const rEnd = Math.min(ventR - 1.5, rOuter + 5.5);
+      ctx.beginPath();
+      ctx.moveTo(cx + ux * (R - 0.4), cy + uy * (R - 0.4));
+      ctx.lineTo(cx + ux * (R + halfDiag * 0.92), cy + uy * (R + halfDiag * 0.92));
+      ctx.stroke();
+      const px = cx + ux * t;
+      const py = cy + uy * t;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-bs / 2, -bs / 2, bs, bs);
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 0.95;
+      ctx.strokeRect(-bs / 2, -bs / 2, bs, bs);
+      ctx.restore();
+      ctx.strokeStyle = 'tan';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(cx + ux * rOuter, cy + uy * rOuter);
+      ctx.lineTo(cx + ux * rEnd, cy + uy * rEnd);
+      ctx.stroke();
+      const tExit = skullStrokeR + pastSkullPx;
+      ctx.lineCap = 'butt';
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+      ctx.lineWidth = 3.1;
+      ctx.beginPath();
+      ctx.moveTo(cx + ux * rEnd, cy + uy * rEnd);
+      ctx.lineTo(cx + ux * tExit, cy + uy * tExit);
+      ctx.stroke();
+      ctx.strokeStyle = 'tan';
+      ctx.lineWidth = 2.05;
+      ctx.beginPath();
+      ctx.moveTo(cx + ux * rEnd, cy + uy * rEnd);
+      ctx.lineTo(cx + ux * tExit, cy + uy * tExit);
+      ctx.stroke();
+      const ex = cx + ux * tExit;
+      const ey = cy + uy * tExit;
+      const towardLung = uy < 0;
+      let Tx;
+      let Ty;
+      if (towardLung) {
+        Tx = lungIconLX + (ux >= 0 ? 11 : -11);
+        Ty = lungIconLY + 5;
+      } else {
+        Tx = 250 + (ux >= 0 ? 14 : -14);
+        Ty = heartCenterY - 8;
+      }
+      const x2 = Tx;
+      const y2 = Ty;
+      ctx.lineCap = 'butt';
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+      ctx.lineWidth = 3.1;
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.strokeStyle = 'tan';
+      ctx.lineWidth = 2.05;
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.lineCap = 'round';
+    }
+  }
 
 
 
@@ -3234,6 +3764,19 @@ function drawScene(pulse) {
 
 
 
+
+  // Thin bridges: CVO ventricular faces (cx±40) to hypothalamus core edge (cx±ventricleCsfInnerR)
+  {
+    const bh = 3.2;
+    const by = cy - bh / 2;
+    const xFaceL = cx - 40;
+    const xFaceR = cx + 40;
+    const xCoreL = cx - ventricleCsfInnerR;
+    const xCoreR = cx + ventricleCsfInnerR;
+    ctx.fillStyle = 'tan';
+    ctx.fillRect(xFaceL, by, xCoreL - xFaceL, bh);
+    ctx.fillRect(xCoreR, by, xFaceR - xCoreR, bh);
+  }
 
   // Yellow CVO half circle
   ctx.beginPath();
@@ -3344,6 +3887,7 @@ ctx.fillStyle = hr === 'sensoryCVO' ? '#ff85a8' : '#e8607a';
 
   drawCerebralVeinMolecules(true);
   drawSasParticles();
+  drawAceLymphParticles();
   drawMacroBlood(pulse);
 
 
@@ -3364,8 +3908,8 @@ ctx.fillStyle = hr === 'sensoryCVO' ? '#ff85a8' : '#e8607a';
 
 
 
-  // Pulsating choroid plexus
-const cpExpand = pulse * 10;
+  // Choroid plexus (static; pulsatility reserved for arteries)
+const cpExpand = 0;
 const cpX = cx - 9 - cpExpand / 2;
 const cpY = cy - 70 - cpExpand / 2;
 const cpW = 18 + cpExpand;
@@ -3378,10 +3922,9 @@ const cpH = 30 + cpExpand;
 
 
 
-const g = Math.floor(pulse * 40);
 const cpR = 255;
-const cpG = Math.floor(215 + pulse * 40);
-const cpB = Math.floor(0 + pulse * 255);
+const cpG = 235;
+const cpB = 64;
 
 
 
@@ -3390,14 +3933,14 @@ const cpB = Math.floor(0 + pulse * 255);
 
 
 
-// Pulsing golden aura (radial halo behind plexus)
+// Golden aura (radial halo behind plexus)
 {
   const acx = cpX + cpW / 2;
   const acy = cpY + cpH / 2;
-  const r0 = Math.min(cpW, cpH) * 0.32 + pulse * 5;
-  const r1 = Math.max(cpW, cpH) * 0.9 + 32 + pulse * 18;
+  const r0 = Math.min(cpW, cpH) * 0.32;
+  const r1 = Math.max(cpW, cpH) * 0.9 + 32;
   const gr = ctx.createRadialGradient(acx, acy, r0, acx, acy, r1);
-  const pa = 0.38 + pulse * 0.48;
+  const pa = 0.62;
   gr.addColorStop(0, `rgba(255, 248, 200, ${pa * 0.55})`);
   gr.addColorStop(0.38, `rgba(255, 215, 95, ${pa * 0.34})`);
   gr.addColorStop(0.72, `rgba(255, 185, 55, ${pa * 0.16})`);
@@ -3415,11 +3958,6 @@ const cpB = Math.floor(0 + pulse * 255);
 
 
 
-if (pulse > 0.12) {
-  ctx.fillStyle = `rgba(255, 220, 110, ${pulse * 0.2})`;
-  ctx.fillRect(cpX - 10, cpY - 10, cpW + 20, cpH + 20);
-}
-
 
 
 
@@ -3428,8 +3966,8 @@ if (pulse > 0.12) {
 
 
 ctx.save();
-ctx.shadowBlur = 16 + pulse * 24;
-ctx.shadowColor = `rgba(255, 210, 95, ${0.48 + pulse * 0.42})`;
+ctx.shadowBlur = 28;
+ctx.shadowColor = 'rgba(255, 210, 95, 0.69)';
 ctx.fillStyle = `rgb(${cpR}, ${cpG}, ${cpB})`;
 ctx.fillRect(cpX, cpY, cpW, cpH);
 ctx.restore();
@@ -3441,8 +3979,8 @@ ctx.restore();
 
 
 
-ctx.lineWidth = 2 + pulse * 2;
-ctx.strokeStyle = `rgba(0, 0, 0, ${0.7 + pulse * 0.3})`;
+ctx.lineWidth = 3;
+ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
 ctx.strokeRect(cpX, cpY, cpW, cpH);
 
 
@@ -3456,11 +3994,11 @@ ctx.strokeRect(cpX, cpY, cpW, cpH);
 const villiCount = 4;
 for (let v = 0; v < villiCount; v++) {
   const vx = cpX + 4 + v * (cpW - 8) / (villiCount - 1);
-  const villiH = 6 + pulse * 5;
+  const villiH = 8;
   ctx.beginPath();
   ctx.moveTo(vx - 2, cpY + cpH);
   ctx.quadraticCurveTo(vx, cpY + cpH + villiH, vx + 2, cpY + cpH);
-  ctx.strokeStyle = `rgba(${cpR}, ${cpG}, ${cpB}, ${0.5 + pulse * 0.5})`;
+  ctx.strokeStyle = `rgba(${cpR}, ${cpG}, ${cpB}, 0.75)`;
   ctx.lineWidth = 1.5;
   ctx.stroke();
 }
@@ -3572,11 +4110,16 @@ if (hr === 'arachnoidGran') {
   }
   drawHeartIcon(250, heartCenterY, pulse);
   drawHeartArteryMolecules(false, pulse);
-// --- Arachnoid cutoff exits: left side, 3 adjacent circles ---
+// --- Arachnoid cutoff exits: left row + three touching on SAS/L4 band (y = cy, same plane as CVOs) ---
 ctx.fillStyle = "lightblue";
 for (const x of arachnoidCutoffCircleXs) {
   ctx.beginPath();
   ctx.arc(x, loliY, cutoffCircleR, 0, 2 * Math.PI);
+  ctx.fill();
+}
+for (const pt of aceLayer34Points) {
+  ctx.beginPath();
+  ctx.arc(pt.x, pt.y, cutoffCircleR, 0, 2 * Math.PI);
   ctx.fill();
 }
 ctx.strokeStyle = "rgba(0,0,0,0.4)";
@@ -3586,11 +4129,21 @@ for (const x of arachnoidCutoffCircleXs) {
   ctx.arc(x, loliY, cutoffCircleR, 0, 2 * Math.PI);
   ctx.stroke();
 }
+for (const pt of aceLayer34Points) {
+  ctx.beginPath();
+  ctx.arc(pt.x, pt.y, cutoffCircleR, 0, 2 * Math.PI);
+  ctx.stroke();
+}
 if (hr === 'arachnoidCutoffExits') {
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
   for (const x of arachnoidCutoffCircleXs) {
     ctx.beginPath();
     ctx.arc(x, loliY, cutoffCircleR, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+  for (const pt of aceLayer34Points) {
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, cutoffCircleR, 0, 2 * Math.PI);
     ctx.fill();
   }
 }
@@ -3605,9 +4158,11 @@ if (hr === 'arachnoidCutoffExits') {
 
 
 
-// CSF secretion when flow is ON: one equal burst per heartbeat (phase wrap of cardiac cycle).
-const csfParticlesPerBeat = 16;
-let csfLastCardiacPhase = null;
+// CSF secretion when flow is ON: constant rate (pairs/s), independent of cardiac phase.
+const csfPairsPerSecond = 10.67;
+let csfContinuousSpawnAccum = 0;
+let csfCvoSecretSpawnAccum = 0;
+let simulationStepAccumulator = 0;
 
 
 
@@ -3619,22 +4174,50 @@ let csfLastCardiacPhase = null;
 function animate() {
   time += dt;
   const pulse = getPulse(time);
-  const cardiacPhase = (time * pulseFreq) % 1;
-  if (csfFlowEnabled && csfLastCardiacPhase !== null && cardiacPhase < csfLastCardiacPhase) {
-    const room = maxParticles - particles.length;
-    const n = Math.min(csfParticlesPerBeat, Math.max(0, Math.floor(room / 2) * 2));
-    if (n >= 2) spawnBurst(n);
+
+  updateAceLymphParticles();
+
+  if (csfFlowEnabled) {
+    const nightStr = getCircadianNightStrength();
+    const csfCircadianMult = circadianDynamicsEnabled ? 0.14 + 0.9 * nightStr : 1;
+    csfContinuousSpawnAccum += csfPairsPerSecond * csfCircadianMult * dt;
+    while (csfContinuousSpawnAccum >= 1) {
+      const room = maxParticles - particles.length;
+      if (room < 2) break;
+      spawnBurst(2);
+      csfContinuousSpawnAccum -= 1;
+    }
+    if (circadianDynamicsEnabled) {
+      const cvoNight = nightStr * nightStr;
+      csfCvoSecretSpawnAccum += 2.35 * cvoNight * dt;
+      while (csfCvoSecretSpawnAccum >= 1) {
+        const room = maxParticles - particles.length;
+        if (room < 2) break;
+        spawnCvoSecretedCsfBurst(2);
+        csfCvoSecretSpawnAccum -= 1;
+      }
+    } else {
+      csfCvoSecretSpawnAccum = 0;
+    }
+  } else {
+    csfContinuousSpawnAccum = 0;
+    csfCvoSecretSpawnAccum = 0;
   }
-  csfLastCardiacPhase = cardiacPhase;
-  updateParticles(pulse);
-  updateSasParticles(pulse);
-  updateVentricleCsfParticles(pulse);
-  updateApertureCsfParticles(pulse);
-  updateMacroBlood(pulse);
-  updateChoroidBloodParticles(pulse);
-  updateHeartArteryMolecules(pulse);
-  updateCerebralVeinMolecules();
+
+  simulationStepAccumulator += simulationSpeedMultiplier;
+  while (simulationStepAccumulator >= 1) {
+    updateParticles(pulse);
+    updateSasParticles(pulse);
+    updateVentricleCsfParticles();
+    updateApertureCsfParticles();
+    updateMacroBlood(pulse);
+    updateChoroidBloodParticles(pulse);
+    updateHeartArteryMolecules(pulse);
+    updateCerebralVeinMolecules();
+    simulationStepAccumulator -= 1;
+  }
   drawScene(pulse);
+  updateDiurnalOverlay();
   requestAnimationFrame(animate);
 }
 
